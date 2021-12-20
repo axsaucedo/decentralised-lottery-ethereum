@@ -18,18 +18,25 @@ contract Auction{
 
     uint bidIncrement;
 
+    bool public ownerFinalized = false;
+
 
     constructor() {
         owner = payable(msg.sender);
         auctionState = State.Running;
         startBlock = block.number;
-        endBlock = startBlock + 40320;
+        endBlock = startBlock + 3;
         ipfsHash = "";
-        bidIncrement = 100;
+        bidIncrement = 1000000000000000000; // bidding in multiple
     }
 
     modifier notOwner(){
         require(msg.sender != owner);
+        _;
+    }
+
+    modifier onlyOwner(){
+        require(msg.sender == owner);
         _;
     }
 
@@ -51,11 +58,15 @@ contract Auction{
         }
     }
 
-    function placeBid() public payable notOwner afterStart beforeEnd{
+    function cancelAuction() public beforeEnd onlyOwner{
+        auctionState = State.Cancelled;
+    }
+
+    function placeBid() public payable notOwner afterStart beforeEnd returns(bool){
         require(auctionState == State.Running);
-        require(msg.value >= 100);
 
         uint currentBid = bids[msg.sender] + msg.value;
+
         require(currentBid > highestStandingBid);
 
         bids[msg.sender] = currentBid;
@@ -66,6 +77,34 @@ contract Auction{
             highestBindingBid = min(currentBid, bids[highestBidder] + bidIncrement);
             highestBidder = payable(msg.sender);
         }
+        return true;
+    }
+
+    function finalizeAuction() public{
+        require(auctionState == State.Cancelled || block.number > endBlock);
+
+        require(msg.sender == owner || bids[msg.sender] > 0);
+
+        address payable recipient;
+        uint value;
+
+        if(auctionState == State.Cancelled){
+            recipient = payable(msg.sender);
+            value = bids[msg.sender];
+        }else{
+            if (msg.sender == owner && ownerFinalized == false){
+                recipient = owner;
+                value = highestBindingBid;
+                ownerFinalized = true;
+            }else{
+                if (msg.sender == highestBidder){
+                    recipient = highestBidder;
+                    value = bids[highestBidder] - highestBindingBid;
+                }
+            }
+        }
+        bids[recipient] = 0;
+        recipient.transfer(value);
     }
 }
 
